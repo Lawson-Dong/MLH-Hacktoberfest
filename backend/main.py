@@ -28,7 +28,12 @@ def scan_files(repo: dict, files: list[SourceFile], warnings: list[str] | None =
 
 def demo_scan() -> dict:
     root = Path(__file__).parent / "demo_repo"
-    files = [SourceFile(str(path.relative_to(root)), path.read_text()) for path in sorted(root.rglob("*")) if path.is_file()]
+    # Deployment runtimes may precompile every .py file, including the fixture.
+    # Restrict inputs to fixture source instead of decoding generated .pyc files.
+    files = [SourceFile(str(path.relative_to(root)), path.read_text())
+        for path in sorted(root.rglob("*"))
+        if path.is_file() and "__pycache__" not in path.parts
+        and (path.suffix in {".py", ".ts", ".tsx", ".js", ".jsx"} or path.name == "CODEOWNERS")]
     digest = hashlib.sha256("".join(file.content for file in files).encode()).hexdigest()
     return scan_files({"name": "campus-connect", "full_name": "demo/campus-connect", "url": "https://github.com/Lawson-Dong/MLH-Hacktoberfest", "branch": "demo", "commit": digest, "demo": True}, files)
 

@@ -3,8 +3,11 @@ import json
 import os
 import sys
 import types
+import shutil
+import tempfile
 import unittest
 import zipfile
+from pathlib import Path
 from unittest.mock import patch
 
 import httpx
@@ -19,6 +22,20 @@ REPO = {"url": "https://github.com/example/repo", "commit": "abcdef", "demo": Fa
 
 
 class DetectionTests(unittest.TestCase):
+    def test_demo_ignores_deployment_bytecode_and_binary_files(self):
+        fixture = Path(__file__).parents[1] / "demo_repo"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copytree(fixture, root / "demo_repo", ignore=shutil.ignore_patterns("__pycache__"))
+            cache = root / "demo_repo" / "backend" / "__pycache__"
+            cache.mkdir()
+            (cache / "main.cpython-312.pyc").write_bytes(b"\xff\xfe\x00\x81")
+            (root / "demo_repo" / "asset.bin").write_bytes(b"\xff\xfe")
+            with patch("backend.main.__file__", str(root / "main.py")):
+                result = demo_scan()
+            self.assertEqual(result["stats"]["files"], 4)
+            self.assertEqual(result["stats"]["calls"], 6)
+
     def test_demo_has_real_missing_mismatch_and_matches(self):
         scan = demo_scan()
         self.assertEqual(scan["stats"], {"files": 4, "calls": 6, "routes": 4, "matched": 3, "review": 3})
