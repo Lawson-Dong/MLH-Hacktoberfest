@@ -1,0 +1,4 @@
+fastapi==0.143.0
+httpx[socks]==0.28.1
+uvicorn==0.38.0
+jsonschema==4.25.1

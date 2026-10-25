@@ -1,0 +1,10 @@
+{
+  "name": "tritonteam",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "npm --prefix frontend run build",
+    "test": "python -m unittest discover -s backend/tests -v"
+  }
+}
