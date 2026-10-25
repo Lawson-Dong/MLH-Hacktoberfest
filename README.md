@@ -83,6 +83,22 @@ References: [Vercel Services](https://vercel.com/docs/services), [FastAPI on Ver
 
 The end-to-end prototype works without an API key. Its default **Schema inference** engine derives field names from matching simple TypeScript interfaces and request literals. It does not pretend to have called an AI model.
 
+### Free Gemma 3 via OpenRouter (recommended for the hackathon)
+
+The Hugging Face router can return **HTTP 402 Payment Required** when inference credits are depleted or billing is unavailable. Switching the model name on the same Hugging Face account does not fix exhausted account credits.
+
+Create an API key at [OpenRouter Settings → Keys](https://openrouter.ai/settings/keys), then add the following **Secret** in Vercel's **Production** environment and redeploy:
+
+```text
+OPENROUTER_API_KEY=your-openrouter-key
+```
+
+When this variable exists, TritonTeam uses OpenRouter's free `google/gemma-3-27b-it:free` route automatically, even if `MODEL_BASE_URL`, `MODEL_NAME`, and `MODEL_API_KEY` were configured for Hugging Face previously. Free models have provider availability and low rate limits (50 requests/day for a basic account at the time of writing), so treat this as a demo option rather than a production SLA. The API key must stay on the backend; never expose it in `VITE_*` variables or commit it to Git.
+
+The `/api/health` response shows the **selected** model; it does not make a paid test call. To validate actual inference, call `/api/contract` and check `contract.engine`. Model-backed results show `Model: google/gemma-3-27b-it:free`. If the provider rejects the request, `engine` remains `Schema inference` and `warnings` includes the error category (402 for billing, 401/403 for permissions, 429 for rate limits).
+
+### Other providers (including Hugging Face)
+
 To have your team's Gemma or another open-weight model refine the proposed contract, configure an **OpenAI-compatible endpoint** in your local shell or Vercel environment settings:
 
 ```text
