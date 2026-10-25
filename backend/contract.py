@@ -14,6 +14,18 @@ except ImportError:
     from schema import Contract, Endpoint
 
 
+def active_model() -> tuple[str, str, str]:
+    """Prefer the explicitly opted-in free Gemma route; never expose API keys."""
+    openrouter_key = os.getenv("OPENROUTER_API_KEY", "").strip()
+    if openrouter_key:
+        return "https://openrouter.ai/api/v1", "google/gemma-3-27b-it:free", openrouter_key
+    return (
+        os.getenv("MODEL_BASE_URL", "").rstrip("/"),
+        os.getenv("MODEL_NAME", ""),
+        os.getenv("MODEL_API_KEY", ""),
+    )
+
+
 def example_for(schema: dict, name="") -> Any:
     if "enum" in schema and schema["enum"]:
         return schema["enum"][0]
@@ -54,11 +66,11 @@ async def propose(endpoint: Endpoint) -> tuple[Contract, list[str]]:
         title=f"{endpoint.method.title()} {re.sub(r'\{[^}]+\}', 'item', endpoint.path).split('/')[-1] or 'resource'}",
         request_schema=object_schema(endpoint.request_fields) if endpoint.request_fields else None,
         response_schema=response_schema, response_example=example_for(response_schema), questions=questions[:8])
-    base_url, model = os.getenv("MODEL_BASE_URL", "").rstrip("/"), os.getenv("MODEL_NAME", "")
+    base_url, model, api_key = active_model()
     warnings = []
     if base_url and model:
         # The URL is operator-configured, never supplied by a repository or visitor.
-        headers = {"Authorization": f"Bearer {os.environ['MODEL_API_KEY']}"} if os.getenv("MODEL_API_KEY") else {}
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         try:
             async with httpx.AsyncClient(timeout=18, follow_redirects=False) as client:
                 response = await client.post(f"{base_url}/chat/completions", headers=headers, json={
@@ -78,6 +90,16 @@ async def propose(endpoint: Endpoint) -> tuple[Contract, list[str]]:
                     raise ValueError("Model changed endpoint facts")
                 candidate.engine = f"Model: {model}"[:120]
                 draft = candidate
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            if status == 402:
+                warnings.append("Model provider returned HTTP 402 (payment or inference credits required). Using schema inference. For a free Gemma demo, configure OPENROUTER_API_KEY; free-tier rate limits apply.")
+            elif status in (401, 403):
+                warnings.append(f"Model provider returned HTTP {status} (check API key and permissions). Using schema inference.")
+            elif status == 429:
+                warnings.append("Model provider rate limit reached (HTTP 429). Using schema inference.")
+            else:
+                warnings.append(f"Model provider returned HTTP {status}. Using schema inference.")
         except (httpx.HTTPError, ValueError, KeyError, TypeError):
             warnings.append("The configured model did not return a valid contract. Showing the evidence-derived draft instead.")
     return draft, warnings
