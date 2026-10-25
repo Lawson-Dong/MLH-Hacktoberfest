@@ -79,37 +79,37 @@ Verify the returned preview's `/api/health`, then run the demo flow above. Promo
 
 References: [Vercel Services](https://vercel.com/docs/services), [FastAPI on Vercel](https://vercel.com/docs/frameworks/backend/fastapi).
 
-## Optional open-weight model
+## Optional AI: Groq + Qwen 3.8 27B
 
-The end-to-end prototype works without an API key. Its default **Schema inference** engine derives field names from matching simple TypeScript interfaces and request literals. It does not pretend to have called an AI model.
+The scanner, review workflow, and runnable mocks work without any model credentials, using **Schema inference**. They must not be described as LLM-powered unless `/api/contract` actually returns a model-backed result.
 
-### Free Gemma 3 via OpenRouter (recommended for the hackathon)
+### Recommended Groq setup for TritonTeam
 
-The Hugging Face router can return **HTTP 402 Payment Required** when inference credits are depleted or billing is unavailable. Switching the model name on the same Hugging Face account does not fix exhausted account credits.
+Groq's [supported models](https://console.groq.com/docs/models) include `qwen/qwen3.8-27b` (preview). Its [free plan](https://console.groq.com/docs/rate-limits) offers a limited number of calls, subject to account-specific limits and model availability. It is not unlimited free computing.
 
-Create an API key at [OpenRouter Settings → Keys](https://openrouter.ai/settings/keys), then add the following **Secret** in Vercel's **Production** environment and redeploy:
+1. Create an API key at [Groq Console → API Keys](https://console.groq.com/keys).
+2. In **Vercel → tritonteam-hacktoberfest → Settings → Environment Variables**, add:
+   - `MODEL_PROVIDER=groq` as a **Config** variable for **Production**.
+   - `GROQ_API_KEY=<your Groq key>` as a **Secret** variable for **Production**.
+3. Save, then **redeploy Production** to load the new variables.
 
-```text
-OPENROUTER_API_KEY=your-openrouter-key
-```
+These variables select `https://api.groq.com/openai/v1` and `qwen/qwen3.8-27b` automatically. When `MODEL_PROVIDER=groq`, existing Hugging Face / OpenRouter keys are **not used**. You do not need to delete legacy variables, and a Groq key is never sent to another provider. Do not store keys in GitHub or client-side `VITE_*` variables.
 
-When this variable exists, TritonTeam uses OpenRouter's free `google/gemma-3-27b-it:free` route automatically, even if `MODEL_BASE_URL`, `MODEL_NAME`, and `MODEL_API_KEY` were configured for Hugging Face previously. Free models have provider availability and low rate limits (50 requests/day for a basic account at the time of writing), so treat this as a demo option rather than a production SLA. The API key must stay on the backend; never expose it in `VITE_*` variables or commit it to Git.
+The backend requests **JSON Object Mode** with Qwen non-thinking inference (`reasoning_effort=none`), then validates every contract with Pydantic and JSON Schema; detected method, path and endpoint ID cannot be changed by a model. The API returns `Schema inference` with a warning when Groq is unavailable, its key is absent, or the output is invalid.
 
-The `/api/health` response shows the **selected** model; it does not make a paid test call. To validate actual inference, call `/api/contract` and check `contract.engine`. Model-backed results show `Model: google/gemma-3-27b-it:free`. If the provider rejects the request, `engine` remains `Schema inference` and `warnings` includes the error category (402 for billing, 401/403 for permissions, 429 for rate limits).
+**How to verify actual AI inference:** `GET /api/health` should report `model_configured: true` and `engine: "qwen/qwen3.8-27b"`; this only verifies configuration. Run a proposal in the UI or `POST /api/contract` and check `contract.engine: "Model: qwen/qwen3.8-27b"` and `warnings: []`. A configured model that responds with 401, 429 or 402 did **not** successfully generate the contract.
 
-### Other providers (including Hugging Face)
+### Alternative open-weight endpoints
 
-To have your team's Gemma or another open-weight model refine the proposed contract, configure an **OpenAI-compatible endpoint** in your local shell or Vercel environment settings:
+To use another OpenAI-compatible model, clear or unset `MODEL_PROVIDER` and `GROQ_API_KEY`. The legacy OpenRouter key, if present, takes priority over generic `MODEL_*` settings. Without either provider's key, the optional generic endpoint is selected through:
 
 ```text
 MODEL_BASE_URL=https://your-model-provider.example/v1
-MODEL_NAME=the-exact-model-id-you-serve
+MODEL_NAME=the-exact-model-id
 MODEL_API_KEY=your-provider-key-if-required
 ```
 
-The provider receives only the proposed contract and up to two public code evidence excerpts. Model output is parsed and validated, cannot change the detected endpoint facts, and remains a proposal requiring human review. A malformed/unavailable model falls back to schema inference with a visible notice.
-
-**No hosted Gemma model is configured by default.** An open-weight model must actually be connected before presenting this as a model-powered hackathon demo. The UI reports which engine produced each contract. Do not commit API keys or put them in frontend/VITE variables.
+The provider receives only the proposed contract and up to two public code evidence excerpts; source code is never executed. Model suggestions always require a developer's review and approval before generating mocks.
 
 An optional server-side `GITHUB_TOKEN` increases GitHub API allowance; the scanner still rejects private repositories. Anonymous GitHub scans are rate limited.
 
