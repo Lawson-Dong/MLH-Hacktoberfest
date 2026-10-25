@@ -162,6 +162,61 @@ class ApiFlowTests(unittest.TestCase):
 
 
 class ModelProviderTests(unittest.IsolatedAsyncioTestCase):
+    async def test_groq_selected_over_old_provider_credentials(self):
+        from backend.contract import active_model
+        with patch.dict(os.environ, {
+            "MODEL_PROVIDER": "groq", "GROQ_API_KEY": "groq-test",
+            "OPENROUTER_API_KEY": "openrouter-old",
+            "MODEL_BASE_URL": "https://router.huggingface.co/v1",
+            "MODEL_NAME": "google/gemma-3-27b-it",
+            "MODEL_API_KEY": "huggingface-old",
+        }):
+            self.assertEqual(active_model(), (
+                "https://api.groq.com/openai/v1", "qwen/qwen3.8-27b", "groq-test"
+            ))
+
+    async def test_selected_groq_without_key_never_calls_provider(self):
+        from backend.contract import propose
+        from backend.schema import Endpoint
+        endpoint = Endpoint(id="groq-missing", method="GET", path="/api/tasks",
+                            status="missing", callers=[], response_fields={"id": "string"})
+        with patch.dict(os.environ, {
+            "MODEL_PROVIDER": "groq", "GROQ_API_KEY": "",
+            "OPENROUTER_API_KEY": "old-invalid-key",
+        }), patch("backend.contract.httpx.AsyncClient", side_effect=AssertionError("must not call Groq without a key")):
+            draft, warnings = await propose(endpoint)
+        self.assertEqual(draft.engine, "Schema inference")
+        self.assertIn("GROQ_API_KEY", " ".join(warnings))
+
+    async def test_groq_json_mode_returns_validated_contract(self):
+        from backend.contract import propose
+        from backend.schema import Endpoint
+        endpoint = Endpoint(id="groq-test", method="GET", path="/api/tasks",
+                            status="missing", callers=[], response_fields={"id": "string"})
+        with patch.dict(os.environ, {"MODEL_PROVIDER": "", "GROQ_API_KEY": "", "OPENROUTER_API_KEY": "", "MODEL_BASE_URL": "", "MODEL_NAME": ""}):
+            template, _ = await propose(endpoint)
+        original = httpx.AsyncClient
+        def factory(**kwargs):
+            def respond(request):
+                self.assertEqual(request.url.host, "api.groq.com")
+                self.assertEqual(request.headers.get("authorization"), "Bearer groq-test")
+                payload = json.loads(request.content)
+                self.assertEqual(payload["model"], "qwen/qwen3.8-27b")
+                self.assertEqual(payload["response_format"], {"type": "json_object"})
+                self.assertEqual(payload["reasoning_effort"], "none")
+                self.assertEqual(payload["max_completion_tokens"], 2400)
+                return httpx.Response(200, json={
+                    "choices": [{"message": {"content": template.model_dump_json()}}]
+                })
+            return original(**kwargs, transport=httpx.MockTransport(respond))
+        with patch.dict(os.environ, {
+            "MODEL_PROVIDER": "groq", "GROQ_API_KEY": "groq-test",
+            "OPENROUTER_API_KEY": "old-invalid-key",
+        }), patch("backend.contract.httpx.AsyncClient", side_effect=factory):
+            draft, warnings = await propose(endpoint)
+        self.assertEqual(warnings, [])
+        self.assertEqual(draft.engine, "Model: qwen/qwen3.8-27b")
+
     async def test_free_gemma_key_takes_precedence(self):
         from backend.contract import active_model
         with patch.dict(os.environ, {
