@@ -96,7 +96,7 @@ fetch('/api/d', {headers: {'method': 'DELETE'}});''')], REPO, warnings)
 class ApiFlowTests(unittest.TestCase):
     def setUp(self):
         self.client = TestClient(app)
-        self.env = patch.dict(os.environ, {"MODEL_BASE_URL": "", "MODEL_NAME": ""})
+        self.env = patch.dict(os.environ, {"MODEL_BASE_URL": "", "MODEL_NAME": "", "OPENROUTER_API_KEY": ""})
         self.env.start()
 
     def tearDown(self):
@@ -158,6 +158,65 @@ class ApiFlowTests(unittest.TestCase):
     def test_scan_errors_and_invalid_mock_url_are_actionable(self):
         self.assertEqual(self.client.post("/api/scan", json={"repo_url": "https://evil.example/a/b"}).status_code, 400)
         self.assertEqual(self.client.get("/api/playground/garbage/api/tasks").status_code, 404)
+
+
+
+class ModelProviderTests(unittest.IsolatedAsyncioTestCase):
+    async def test_free_gemma_key_takes_precedence(self):
+        from backend.contract import active_model
+        with patch.dict(os.environ, {
+            "OPENROUTER_API_KEY": "test-free-token",
+            "MODEL_BASE_URL": "https://router.huggingface.co/v1",
+            "MODEL_NAME": "google/gemma-3-27b-it",
+            "MODEL_API_KEY": "test-hf-token",
+        }):
+            self.assertEqual(active_model(), (
+                "https://openrouter.ai/api/v1",
+                "google/gemma-3-27b-it:free",
+                "test-free-token",
+            ))
+
+    async def test_huggingface_402_reports_billing_issue_without_key_leak(self):
+        from backend.contract import propose
+        from backend.schema import Endpoint
+        endpoint = Endpoint(id="billing-test", method="GET", path="/api/tasks",
+                            status="missing", callers=[], response_fields={"id": "string"})
+        original = httpx.AsyncClient
+        def factory(**kwargs):
+            def respond(request):
+                self.assertEqual(request.url.host, "router.huggingface.co")
+                self.assertEqual(request.headers.get("authorization"), "Bearer test-hf-token")
+                return httpx.Response(402, json={"error": "payment required"})
+            return original(**kwargs, transport=httpx.MockTransport(respond))
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": "", "MODEL_BASE_URL": "https://router.huggingface.co/v1",
+                                    "MODEL_NAME": "google/gemma-3-27b-it", "MODEL_API_KEY": "test-hf-token"}):
+            with patch("backend.contract.httpx.AsyncClient", side_effect=factory):
+                result, warnings = await propose(endpoint)
+        self.assertEqual(result.engine, "Schema inference")
+        self.assertIn("HTTP 402", " ".join(warnings))
+        self.assertNotIn("test-hf-token", " ".join(warnings))
+
+    async def test_free_gemma_valid_response_identified_as_model(self):
+        from backend.contract import propose
+        from backend.schema import Endpoint
+        endpoint = Endpoint(id="free-test", method="GET", path="/api/tasks",
+                            status="missing", callers=[], response_fields={"id": "string"})
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": "", "MODEL_BASE_URL": "", "MODEL_NAME": ""}):
+            template, _ = await propose(endpoint)
+        original = httpx.AsyncClient
+        def factory(**kwargs):
+            def respond(request):
+                self.assertEqual(request.url.host, "openrouter.ai")
+                self.assertEqual(request.headers.get("authorization"), "Bearer test-free-token")
+                return httpx.Response(200, json={"choices": [{"message": {
+                    "content": template.model_dump_json()
+                }}]})
+            return original(**kwargs, transport=httpx.MockTransport(respond))
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-free-token"}):
+            with patch("backend.contract.httpx.AsyncClient", side_effect=factory):
+                result, warnings = await propose(endpoint)
+        self.assertFalse(warnings)
+        self.assertEqual(result.engine, "Model: google/gemma-3-27b-it:free")
 
 
 class GitHubBoundaryTests(unittest.IsolatedAsyncioTestCase):
