@@ -13,13 +13,13 @@ from jsonschema import Draft202012Validator
 from itertools import islice
 
 try:
-    from .contract import propose
+    from .contract import active_model, propose
     from .github_source import SourceError
     from .main import demo_scan, scan_repository
     from .schema import ApprovedInput, DraftInput, ScanInput, VerifyInput
     from .unblock import create_mock, decode_contract, files_for
 except ImportError:
-    from contract import propose
+    from contract import active_model, propose
     from github_source import SourceError
     from main import demo_scan, scan_repository
     from schema import ApprovedInput, DraftInput, ScanInput, VerifyInput
@@ -41,7 +41,8 @@ async def request_limits(request: Request, call_next):
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "0.1.0", "model_configured": bool(os.getenv("MODEL_BASE_URL") and os.getenv("MODEL_NAME")), "engine": os.getenv("MODEL_NAME") if os.getenv("MODEL_BASE_URL") and os.getenv("MODEL_NAME") else "Schema inference"}
+    base_url, model, api_key = active_model()
+    return {"status": "ok", "version": "0.1.0", "model_configured": bool(base_url and model and api_key), "engine": model if base_url and model and api_key else "Schema inference"}
 
 
 @app.get("/api/demo")
