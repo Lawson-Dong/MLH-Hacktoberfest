@@ -130,6 +130,15 @@ async def propose(endpoint: Endpoint) -> tuple[Contract, list[str]]:
             if base_url in {XAI_BASE_URL, DEEPSEEK_BASE_URL}:
                 # Official Responses API; Grok is a different service from Groq.
                 output_schema = Contract.model_json_schema()
+                if base_url == DEEPSEEK_BASE_URL:
+                    # DeepSeek rejects Pydantic Any without an explicit JSON type.
+                    # Keep the evidence-derived root kind; nested fields remain open.
+                    example_kind = "array" if endpoint.response_is_array else "object"
+                    output_schema["properties"]["response_example"] = {"type": example_kind}
+                    if example_kind == "array":
+                        output_schema["properties"]["response_example"]["items"] = {"type": "object", "additionalProperties": True}
+                    else:
+                        output_schema["properties"]["response_example"]["additionalProperties"] = True
                 for name in ("endpoint_id", "method", "path"):
                     output_schema["properties"][name]["const"] = getattr(draft, name)
                 payload = {
