@@ -44,6 +44,7 @@ class DeepSeekTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(payload["reasoning"], {"effort": "none"})
             self.assertEqual(payload["text"]["format"]["type"], "json_schema")
             self.assertTrue(payload["text"]["format"]["strict"])
+            self.assertEqual(payload["text"]["format"]["schema"]["properties"]["response_example"]["type"], "object")
             self.assertNotIn("reasoning_effort", payload)
             return httpx.Response(200, json={"status": "completed", "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": json.dumps(self.template.model_dump())}]}]})
         draft, warnings = await self.invoke(handler)
