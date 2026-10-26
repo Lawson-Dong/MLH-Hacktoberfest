@@ -20,6 +20,8 @@ GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 GROQ_MODEL = "qwen/qwen3.8-27b"
 XAI_BASE_URL = "https://api.x.ai/v1"
 XAI_MODEL = "grok-4.3"
+DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+DEEPSEEK_MODEL = "deepseek-flash"
 logger = logging.getLogger(__name__)
 
 
@@ -42,8 +44,11 @@ def provider_error_hint(response: httpx.Response, api_key: str) -> str:
 
 
 def active_model() -> tuple[str, str, str]:
-    """A Grok/xAI credential must never be sent to Groq or another provider."""
+    """Keep each provider credential isolated from other services."""
     provider = os.getenv("MODEL_PROVIDER", "").strip().lower()
+    deepseek_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
+    if provider == "deepseek" or (not provider and deepseek_key):
+        return DEEPSEEK_BASE_URL, os.getenv("DEEPSEEK_MODEL", "").strip() or DEEPSEEK_MODEL, deepseek_key
     xai_key = next((os.getenv(name, "").strip() for name in ("XAI_API_KEY", "GROK_API_KEY", "Grok_API_Key") if os.getenv(name, "").strip()), "")
     groq_key = os.getenv("GROQ_API_KEY", "").strip()
     if provider in {"xai", "grok"} or (not provider and xai_key):
@@ -104,7 +109,9 @@ async def propose(endpoint: Endpoint) -> tuple[Contract, list[str]]:
         response_schema=response_schema, response_example=example_for(response_schema), questions=questions[:8])
     base_url, model, api_key = active_model()
     warnings = []
-    if base_url == XAI_BASE_URL and not api_key:
+    if base_url == DEEPSEEK_BASE_URL and not api_key:
+        warnings.append("DeepSeek is selected, but DEEPSEEK_API_KEY is not set. Using schema inference.")
+    elif base_url == XAI_BASE_URL and not api_key:
         warnings.append("xAI/Grok is selected, but XAI_API_KEY (or the existing Grok_API_Key) is not set. Using schema inference.")
     elif base_url == GROQ_BASE_URL and not api_key:
         warnings.append("Groq/Qwen is selected, but GROQ_API_KEY is not set. Using schema inference.")
@@ -133,6 +140,9 @@ async def propose(endpoint: Endpoint) -> tuple[Contract, list[str]]:
                     "text": {"format": {"type": "json_schema", "name": "api_contract", "schema": output_schema, "strict": True}},
                 }
                 messages_key, api_path = "input", "responses"
+            elif base_url == DEEPSEEK_BASE_URL:
+                payload.update({"max_tokens": 2400, "thinking": {"type": "disabled"},
+                                "response_format": {"type": "json_object"}})
             elif base_url == GROQ_BASE_URL:
                 # Qwen's non-thinking JSON mode avoids <think> output and improves contract parsing.
                 payload.pop("max_tokens")
@@ -187,7 +197,7 @@ async def propose(endpoint: Endpoint) -> tuple[Contract, list[str]]:
                     break
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code
-            hint = provider_error_hint(exc.response, api_key) if base_url == XAI_BASE_URL else ""
+            hint = provider_error_hint(exc.response, api_key) if base_url in {XAI_BASE_URL, DEEPSEEK_BASE_URL} else ""
             detail = f" Provider detail: {hint}" if hint else ""
             if status == 402:
                 warnings.append("Model provider returned HTTP 402 (payment or inference credits required). Using schema inference." + detail)
