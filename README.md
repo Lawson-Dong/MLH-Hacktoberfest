@@ -96,6 +96,8 @@ Groq's [supported models](https://console.groq.com/docs/models) include `qwen/qw
 
 These variables select `https://api.groq.com/openai/v1` and `qwen/qwen3.8-27b` automatically. When `MODEL_PROVIDER=groq`, existing Hugging Face / OpenRouter keys are **not used**. You do not need to delete legacy variables, and a Groq key is never sent to another provider. Do not store keys in GitHub or client-side `VITE_*` variables.
 
+The existing deployed Secret name `Grok_API_Key` is accepted as a compatibility alias. `GROQ_API_KEY` takes priority; use that canonical name for new configuration.
+
 The backend requests **JSON Object Mode** with Qwen non-thinking inference (`reasoning_effort=none`), then validates every contract with Pydantic and JSON Schema; detected method, path and endpoint ID cannot be changed by a model. Invalid output gets at most one correction request, with the same validation rules. The API returns `Schema inference` with a warning when Groq is unavailable, its key is absent, or both outputs are invalid. Timeouts and network failures have separate diagnostics and are not retried.
 
 **How to verify actual AI inference:** `GET /api/health` should report `model_configured: true` and `engine: "qwen/qwen3.8-27b"`; this only verifies configuration. Run a proposal in the UI or `POST /api/contract` and check `contract.engine: "Model: qwen/qwen3.8-27b"` and `warnings: []`. A configured model that responds with 401, 429 or 402 did **not** successfully generate the contract.

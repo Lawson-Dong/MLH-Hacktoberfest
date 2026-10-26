@@ -23,7 +23,9 @@ logger = logging.getLogger(__name__)
 
 def active_model() -> tuple[str, str, str]:
     """Select Groq/Qwen explicitly without reusing another provider's credentials."""
-    groq_key = os.getenv("GROQ_API_KEY", "").strip()
+    # Compatibility with the Secret name already saved in the deployed project.
+    # Vercel cannot rename Sensitive variables without replacing their value.
+    groq_key = os.getenv("GROQ_API_KEY", "").strip() or os.getenv("Grok_API_Key", "").strip()
     if os.getenv("MODEL_PROVIDER", "").strip().lower() == "groq" or groq_key:
         return GROQ_BASE_URL, GROQ_MODEL, groq_key
     openrouter_key = os.getenv("OPENROUTER_API_KEY", "").strip()

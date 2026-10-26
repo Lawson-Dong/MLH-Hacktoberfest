@@ -5,11 +5,17 @@ from unittest.mock import patch
 
 import httpx
 
-from backend.contract import propose
+from backend.contract import active_model, propose
 from backend.schema import Endpoint
 
 
 class ModelValidationTests(unittest.IsolatedAsyncioTestCase):
+    def test_deployed_secret_alias_and_canonical_key_precedence(self):
+        with patch.dict(os.environ, {"MODEL_PROVIDER": "groq", "GROQ_API_KEY": "", "Grok_API_Key": "existing-secret"}):
+            self.assertEqual(active_model()[2], "existing-secret")
+        with patch.dict(os.environ, {"MODEL_PROVIDER": "groq", "GROQ_API_KEY": "canonical-secret", "Grok_API_Key": "existing-secret"}):
+            self.assertEqual(active_model()[2], "canonical-secret")
+
     async def asyncSetUp(self):
         self.endpoint = Endpoint(id="retry-test", method="GET", path="/api/tasks", status="missing", callers=[])
         with patch.dict(os.environ, {"MODEL_PROVIDER": "", "GROQ_API_KEY": "", "OPENROUTER_API_KEY": "", "MODEL_BASE_URL": "", "MODEL_NAME": ""}):
