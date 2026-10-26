@@ -41,7 +41,7 @@ import type { Endpoint, Records, Scan, Section } from "./types";
 import "./styles.css";
 
 const SOURCE = "https://github.com/Lawson-Dong/MLH-Hacktoberfest";
-const SCAN_KEY = "tritonteam.scan.v1";
+const SCAN_KEY = "tritonteam.scan.v2";
 const CONTRACTS_KEY = "tritonteam.contracts.v1";
 const sections = {
   overview: "Overview",
@@ -542,14 +542,14 @@ export default function App() {
                     icon: Code2,
                     name: "Frontend API calls",
                     value: scan.stats.calls,
-                    note: "unique method + path",
+                    note: scan.stats.calls ? "unique method + path" : "check scan coverage below",
                     cls: "ink",
                   },
                   {
                     icon: CheckCheck,
                     name: "Routes matched",
                     value: scan.stats.matched,
-                    note: "path & method connected",
+                    note: scan.stats.calls && scan.stats.routes ? "path & method connected" : "coverage is insufficient",
                     cls: "green",
                   },
                   {
@@ -580,7 +580,7 @@ export default function App() {
                 ))}
               </div>
               {scan.warnings.length > 0 && (
-                <details className="coverage-notice">
+                <details className="coverage-notice" open={!scan.stats.calls || !scan.stats.routes}>
                   <summary>
                     <TriangleAlert size={15} />
                     <span>
@@ -614,7 +614,7 @@ export default function App() {
                       </div>
                       <span className="tag neutral-tag">
                         <Activity size={11} />
-                        SCAN COMPLETE
+                        {scan.stats.calls && scan.stats.routes ? "SCAN COMPLETE" : "LIMITED COVERAGE"}
                       </span>
                     </div>
                     <div className="table-toolbar">
@@ -753,7 +753,7 @@ export default function App() {
                           <p>
                             {scan.stats.calls
                               ? "Try another path or clear your filters."
-                              : "Try the demo, or scan a React repository with literal fetch or axios calls."}
+                              : "Zero detected calls does not mean there are no APIs. Read the coverage notes above; custom clients, dynamic URLs or excluded files may need manual review. Try the demo to see a supported example."}
                           </p>
                           {scan.stats.calls > 0 && (
                             <button

@@ -23,7 +23,7 @@ def scan_files(repo: dict, files: list[SourceFile], warnings: list[str] | None =
         "scanned_at": datetime.now(timezone.utc).isoformat(), "duration_ms": round((time.perf_counter() - start) * 1000),
         "stats": {"files": len(files), "calls": len(endpoints), "routes": len(routes), "matched": matched, "review": len(endpoints) - matched},
         "endpoints": [endpoint.model_dump() for endpoint in endpoints], "warnings": list(dict.fromkeys(warnings))[:30],
-        "scope": "Literal root-relative fetch/axios calls and statically mounted FastAPI routes. Other frameworks, wrappers and business/schema compatibility need manual review."}
+        "scope": "Root-relative fetch/Axios calls, local URL constants, static Axios base URLs and traceable fetch wrappers; statically mounted FastAPI routes. Unsupported clients, other backend frameworks and runtime/schema compatibility need manual review."}
 
 
 def demo_scan() -> dict:
@@ -49,12 +49,15 @@ async def scan_repository(url: str) -> dict:
 def run(repo_path: str) -> dict:
     """Local CLI adapter for teammates' scanner/integration work."""
     try:
-        from .github_source import is_source
+        from .github_source import is_source, select_sources
     except ImportError:
-        from github_source import is_source
+        from github_source import is_source, select_sources
     root = Path(repo_path).resolve()
-    files = [SourceFile(str(path.relative_to(root)), path.read_text()) for path in sorted(root.rglob("*")) if path.is_file() and is_source(str(path.relative_to(root))) and path.stat().st_size <= 100000][:80]
-    return scan_files({"name": root.name, "full_name": f"local/{root.name}", "url": "", "branch": "local", "commit": "local", "demo": True}, files)
+    candidates = [{"path": str(path.relative_to(root)), "size": path.stat().st_size} for path in sorted(root.rglob("*")) if path.is_file() and is_source(str(path.relative_to(root))) and path.stat().st_size <= 100000]
+    chosen = select_sources(candidates)
+    files = [SourceFile(item["path"], (root / item["path"]).read_text()) for item in chosen]
+    warnings = [f"Local scan limited to {len(chosen)} of {len(candidates)} eligible files."] if len(chosen) < len(candidates) else []
+    return scan_files({"name": root.name, "full_name": f"local/{root.name}", "url": "", "branch": "local", "commit": "local", "demo": True}, files, warnings)
 
 
 if __name__ == "__main__":

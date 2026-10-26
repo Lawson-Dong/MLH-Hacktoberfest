@@ -40,6 +40,8 @@ Scan errors use `{detail:string}` with 400 invalid URL, 404 public repository no
 
 `calls` counts **unique method + normalized path pairs**, not all call sites. `routes` counts supported statically mounted backend routes. `matched` means path + method exist, not that payload semantics have been verified. `review` includes missing and method-mismatched endpoints.
 
+Frontend detection includes static URL constants, Axios instances, TypeScript generic calls and locally traceable fetch wrappers with named relative imports. It does not assume every function named `api` or `request` is an HTTP client. Zero calls or routes is insufficient coverage, not proof of no API dependencies; clients should keep coverage notes visible in that state.
+
 ## Endpoint
 
 ```ts

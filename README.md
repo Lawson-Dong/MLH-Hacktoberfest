@@ -9,7 +9,8 @@ An API collaboration prototype for Hacktoberfest. Paste a public GitHub reposito
 ## What works
 
 - Public GitHub scanning at an immutable commit; source code is read, never executed.
-- Literal root-relative React/JS/TS `fetch` and `axios.get/post/put/patch/delete` calls, including simple template path parameters.
+- Root-relative JS/TS `fetch` and Axios calls, including TypeScript generics, local URL constants, simple concatenation/template parameters, and Axios instances with static `baseURL` values.
+- Traceable local fetch wrappers (function or arrow syntax), including named relative imports: fixed methods, forwarded fetch options, or the explicit `body === undefined ? "GET" : "POST"` convention. Evidence points to the caller rather than the wrapper definition.
 - Python AST extraction of FastAPI routes and statically mounted APIRouter prefixes, including imports and nested mounts.
 - Method/path matching, missing route candidates and method mismatches, with file/line evidence.
 - CODEOWNERS ownership hints. These are signals for discussion, not proof that someone is blocking the team.
@@ -95,7 +96,7 @@ Groq's [supported models](https://console.groq.com/docs/models) include `qwen/qw
 
 These variables select `https://api.groq.com/openai/v1` and `qwen/qwen3.8-27b` automatically. When `MODEL_PROVIDER=groq`, existing Hugging Face / OpenRouter keys are **not used**. You do not need to delete legacy variables, and a Groq key is never sent to another provider. Do not store keys in GitHub or client-side `VITE_*` variables.
 
-The backend requests **JSON Object Mode** with Qwen non-thinking inference (`reasoning_effort=none`), then validates every contract with Pydantic and JSON Schema; detected method, path and endpoint ID cannot be changed by a model. The API returns `Schema inference` with a warning when Groq is unavailable, its key is absent, or the output is invalid.
+The backend requests **JSON Object Mode** with Qwen non-thinking inference (`reasoning_effort=none`), then validates every contract with Pydantic and JSON Schema; detected method, path and endpoint ID cannot be changed by a model. Invalid output gets at most one correction request, with the same validation rules. The API returns `Schema inference` with a warning when Groq is unavailable, its key is absent, or both outputs are invalid. Timeouts and network failures have separate diagnostics and are not retried.
 
 **How to verify actual AI inference:** `GET /api/health` should report `model_configured: true` and `engine: "qwen/qwen3.8-27b"`; this only verifies configuration. Run a proposal in the UI or `POST /api/contract` and check `contract.engine: "Model: qwen/qwen3.8-27b"` and `warnings: []`. A configured model that responds with 401, 429 or 402 did **not** successfully generate the contract.
 
@@ -153,8 +154,8 @@ python -m backend.main https://github.com/owner/repository
 
 - Browser-local scan/approval state; no shared team database, authentication or synchronized teammate sign-off.
 - On-demand scans; no continuous GitHub monitoring, webhook, notifications or automatic PR writes.
-- Root-relative literal calls only. Custom HTTP clients, computed URLs, base-URL-dependent/external calls, generated clients and non-FastAPI backends need manual review. Unsupported detected patterns produce coverage notes.
-- Scan limits: 80 eligible files, 100 KB per file, 2 MB total, 48-second request budget. Tests, fixtures, example folders, vendored dependencies and build outputs are excluded. Truncated/unreadable scans show coverage notes.
+- Static root-relative calls only. Arbitrary wrapper logic, re-export chains, default-imported custom clients, computed origins, external API hosts, generated clients and non-FastAPI backends need manual review. Unsupported detected patterns produce coverage notes. **Zero detected calls does not prove there are no APIs.** Zero-call or zero-route scans expand their coverage notes in the UI.
+- Scan limits: 80 eligible files, 100 KB per file, 2 MB total, 48-second request budget. JavaScript and Python sources share the file budget so an alphabetically earlier backend cannot crowd out every frontend file. Tests, fixtures, example folders, vendored dependencies and build outputs are excluded. Truncated/unreadable scans show coverage notes.
 - Simple CODEOWNERS rules provide hints; this is not Git blame, a runtime dependency graph or a full GitHub ownership resolver.
 - Contract inference is provisional. Types of variable request values, optional fields, authentication, error responses and pagination require agreement. Field shape validation does not prove business correctness.
 - Mock endpoints support GET/POST/PUT/PATCH/DELETE. They return one synthetic success example, not a database or an implementation of backend behavior. The exported skeleton intentionally returns 501 until implemented.

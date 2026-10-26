@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+from itertools import zip_longest
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from urllib.parse import quote, urlsplit
@@ -44,7 +45,22 @@ def is_source(path: str) -> bool:
     parts = PurePosixPath(path).parts
     if set(parts) & IGNORED or any(p.startswith(".") for p in parts[:-1] if p not in {".github"}):
         return path in {".github/CODEOWNERS"}
-    return (path.endswith((".py", ".tsx", ".jsx", ".ts", ".js")) and not re.search(r"\.(test|spec)\.[jt]sx?$", path)) or path in {"CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"}
+    return (path.endswith((".py", ".tsx", ".jsx", ".ts", ".js", ".mjs", ".cjs")) and not re.search(r"\.(test|spec)\.(?:[jt]sx?|[mc]js)$", path)) or path in {"CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"}
+
+
+def select_sources(candidates: list[dict]) -> list[dict]:
+    """Keep a large backend from using the entire budget before any UI is read."""
+    owners = [item for item in candidates if item["path"].endswith("CODEOWNERS")]
+    python = [item for item in candidates if item["path"].endswith(".py")]
+    javascript = [item for item in candidates if not item["path"].endswith((".py", "CODEOWNERS"))]
+    ordered = owners + [item for pair in zip_longest(javascript, python) for item in pair if item is not None]
+    chosen, total = [], 0
+    for item in ordered:
+        size = item.get("size", 0)
+        if len(chosen) < MAX_FILES and total + size <= MAX_TOTAL_BYTES:
+            chosen.append(item)
+            total += size
+    return chosen
 
 
 async def fetch_repository(value: str) -> tuple[dict, list[SourceFile], list[str]]:
@@ -82,12 +98,7 @@ async def fetch_repository(value: str) -> tuple[dict, list[SourceFile], list[str
         if oversized:
             warnings.append(f"Skipped {len(oversized)} source files larger than 100 KB.")
         candidates = [item for item in candidates if item.get("size", 0) <= MAX_FILE_BYTES]
-        chosen, total_bytes = [], 0
-        for item in candidates:
-            if len(chosen) >= MAX_FILES or total_bytes + item.get("size", 0) > MAX_TOTAL_BYTES:
-                continue
-            chosen.append(item)
-            total_bytes += item.get("size", 0)
+        chosen = select_sources(candidates)
         if len(chosen) < len(candidates):
             warnings.append(f"Scan limited to {len(chosen)} of {len(candidates)} eligible files (80 files / 2 MB maximum).")
         semaphore = asyncio.Semaphore(8)
