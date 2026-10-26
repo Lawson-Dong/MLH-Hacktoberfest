@@ -80,11 +80,25 @@ Verify the returned preview's `/api/health`, then run the demo flow above. Promo
 
 References: [Vercel Services](https://vercel.com/docs/services), [FastAPI on Vercel](https://vercel.com/docs/frameworks/backend/fastapi).
 
-## AI: xAI / Grok
+## AI: DeepSeek and other providers
 
 The scanner, review workflow, and runnable mocks work without any model credentials, using **Schema inference**. They must not be described as LLM-powered unless `/api/contract` actually returns a model-backed result.
 
-### Grok setup for TritonTeam
+### DeepSeek setup for TritonTeam
+
+Set these server-side Production variables in Vercel, then redeploy:
+
+```text
+MODEL_PROVIDER=deepseek
+DEEPSEEK_API_KEY=<your DeepSeek API key>
+DEEPSEEK_MODEL=deepseek-flash
+```
+
+The dedicated adapter calls `https://api.deepseek.com/chat/completions`, requests JSON output with thinking disabled, and validates the contract locally. The [official model list](https://api-docs.deepseek.com/quick_start/pricing/) currently maps `deepseek-flash` to DeepSeek V4.1 Flash. `DEEPSEEK_MODEL` can override the model ID. DeepSeek credentials are never reused for another provider, and missing keys or provider failures explicitly fall back to schema inference. Invalid contracts get at most one correction request.
+
+Verify `/api/health` reports `model_configured: true` and `engine: "deepseek-flash"`, then generate a contract: success requires `contract.engine: "Model: deepseek-flash"` and `warnings: []`. Health alone does not prove successful inference. Review and approve the proposal before generating mocks.
+
+### Optional Grok setup
 
 TritonTeam supports the [xAI Responses API](https://docs.x.ai/developers/rest-api-reference/inference/responses). The default is [Grok 4.3](https://docs.x.ai/developers/models/grok-4.3), with reasoning disabled for this short contract-generation task. `XAI_MODEL` can select another model; other Grok models use low reasoning effort. Availability, account credits, permissions, and provider charges still apply.
 
