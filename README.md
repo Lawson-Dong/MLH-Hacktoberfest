@@ -94,7 +94,7 @@ DEEPSEEK_API_KEY=<your DeepSeek API key>
 DEEPSEEK_MODEL=deepseek-flash
 ```
 
-The dedicated adapter calls `https://api.deepseek.com/chat/completions`, requests JSON output with thinking disabled, and validates the contract locally. The [official model list](https://api-docs.deepseek.com/quick_start/pricing/) currently maps `deepseek-flash` to DeepSeek V4.1 Flash. `DEEPSEEK_MODEL` can override the model ID. DeepSeek credentials are never reused for another provider, and missing keys or provider failures explicitly fall back to schema inference. Invalid contracts get at most one correction request.
+The dedicated adapter calls `https://api.deepseek.com/responses`, requests structured JSON Schema output with thinking disabled, and validates the contract locally. The [official model list](https://api-docs.deepseek.com/quick_start/pricing/) currently maps `deepseek-flash` to DeepSeek V4.1 Flash. `DEEPSEEK_MODEL` can override the model ID. DeepSeek credentials are never reused for another provider, and missing keys or provider failures explicitly fall back to schema inference. Invalid contracts get at most one correction request.
 
 Verify `/api/health` reports `model_configured: true` and `engine: "deepseek-flash"`, then generate a contract: success requires `contract.engine: "Model: deepseek-flash"` and `warnings: []`. Health alone does not prove successful inference. Review and approve the proposal before generating mocks.
 
