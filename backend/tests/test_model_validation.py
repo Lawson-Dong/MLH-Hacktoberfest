@@ -11,9 +11,9 @@ from backend.schema import Endpoint
 
 class ModelValidationTests(unittest.IsolatedAsyncioTestCase):
     def test_deployed_secret_alias_and_canonical_key_precedence(self):
-        with patch.dict(os.environ, {"MODEL_PROVIDER": "groq", "GROQ_API_KEY": "", "Grok_API_Key": "existing-secret"}):
+        with patch.dict(os.environ, {"MODEL_PROVIDER": "xai", "XAI_API_KEY": "", "GROK_API_KEY": "", "Grok_API_Key": "existing-secret"}):
             self.assertEqual(active_model()[2], "existing-secret")
-        with patch.dict(os.environ, {"MODEL_PROVIDER": "groq", "GROQ_API_KEY": "canonical-secret", "Grok_API_Key": "existing-secret"}):
+        with patch.dict(os.environ, {"MODEL_PROVIDER": "xai", "XAI_API_KEY": "canonical-secret", "Grok_API_Key": "existing-secret"}):
             self.assertEqual(active_model()[2], "canonical-secret")
 
     async def asyncSetUp(self):

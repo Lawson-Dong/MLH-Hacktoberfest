@@ -80,33 +80,35 @@ Verify the returned preview's `/api/health`, then run the demo flow above. Promo
 
 References: [Vercel Services](https://vercel.com/docs/services), [FastAPI on Vercel](https://vercel.com/docs/frameworks/backend/fastapi).
 
-## Optional AI: Groq + Qwen 3.8 27B
+## AI: xAI / Grok
 
 The scanner, review workflow, and runnable mocks work without any model credentials, using **Schema inference**. They must not be described as LLM-powered unless `/api/contract` actually returns a model-backed result.
 
-### Recommended Groq setup for TritonTeam
+### Grok setup for TritonTeam
 
-Groq's [supported models](https://console.groq.com/docs/models) include `qwen/qwen3.8-27b` (preview). Its [free plan](https://console.groq.com/docs/rate-limits) offers a limited number of calls, subject to account-specific limits and model availability. It is not unlimited free computing.
+TritonTeam supports the [xAI Responses API](https://docs.x.ai/developers/rest-api-reference/inference/responses). The default is [Grok 4.3](https://docs.x.ai/developers/models/grok-4.3), with reasoning disabled for this short contract-generation task. `XAI_MODEL` can select another model; other Grok models use low reasoning effort. Availability, account credits, permissions, and provider charges still apply.
 
-1. Create an API key at [Groq Console → API Keys](https://console.groq.com/keys).
+1. Create an API key at the [xAI Console](https://console.x.ai/).
 2. In **Vercel → tritonteam-hacktoberfest → Settings → Environment Variables**, add:
-   - `MODEL_PROVIDER=groq` as a **Config** variable for **Production**.
-   - `GROQ_API_KEY=<your Groq key>` as a **Secret** variable for **Production**.
+   - `MODEL_PROVIDER=xai` as a **Config** variable for **Production** (`grok` is also accepted).
+   - `XAI_API_KEY=<your xAI key>` as a **Secret** variable for **Production**.
+   - Optionally, `XAI_MODEL=grok-4.3` as a **Config** variable.
 3. Save, then **redeploy Production** to load the new variables.
 
-These variables select `https://api.groq.com/openai/v1` and `qwen/qwen3.8-27b` automatically. When `MODEL_PROVIDER=groq`, existing Hugging Face / OpenRouter keys are **not used**. You do not need to delete legacy variables, and a Groq key is never sent to another provider. Do not store keys in GitHub or client-side `VITE_*` variables.
+These variables select `https://api.x.ai/v1/responses`. The existing deployed Secret `Grok_API_Key` is accepted directly, so it does not need to be renamed or copied. Key priority is `XAI_API_KEY`, `GROK_API_KEY`, then `Grok_API_Key`.
 
-The existing deployed Secret name `Grok_API_Key` is accepted as a compatibility alias. `GROQ_API_KEY` takes priority; use that canonical name for new configuration.
+**Grok/xAI and Groq are different services.** Grok keys are never used for Groq, OpenRouter, or the generic provider. Explicit provider selection never falls through to another provider's credentials. Do not put keys in GitHub or client-side `VITE_*` variables.
 
-The backend requests **JSON Object Mode** with Qwen non-thinking inference (`reasoning_effort=none`), then validates every contract with Pydantic and JSON Schema; detected method, path and endpoint ID cannot be changed by a model. Invalid output gets at most one correction request, with the same validation rules. The API returns `Schema inference` with a warning when Groq is unavailable, its key is absent, or both outputs are invalid. Timeouts and network failures have separate diagnostics and are not retried.
+The backend requests structured JSON through `text.format` with the Contract JSON Schema. Detected endpoint ID, method, and path are constrained and validated locally as well. Responses are not stored by the provider (`store: false`). Invalid output gets at most one correction request, preserving opaque response items for the native Responses protocol; the same validation rules apply. A missing key, HTTP failure, timeout, or invalid output returns an explicit `Schema inference` warning. Timeouts and HTTP failures are not retried. Mock generation still requires developer review and acceptance.
 
-**How to verify actual AI inference:** `GET /api/health` should report `model_configured: true` and `engine: "qwen/qwen3.8-27b"`; this only verifies configuration. Run a proposal in the UI or `POST /api/contract` and check `contract.engine: "Model: qwen/qwen3.8-27b"` and `warnings: []`. A configured model that responds with 401, 429 or 402 did **not** successfully generate the contract.
+**Verify actual AI inference:** `GET /api/health` should report `model_configured: true` and `engine: "grok-4.3"`; this verifies configuration only. Generate a proposal in the UI or use `POST /api/contract`, then check `contract.engine: "Model: grok-4.3"` and `warnings: []`. A configured model returning 401, 403, 402, 429, or a timeout did **not** successfully generate the contract.
 
-### Alternative open-weight endpoints
+### Other providers
 
-To use another OpenAI-compatible model, clear or unset `MODEL_PROVIDER` and `GROQ_API_KEY`. The legacy OpenRouter key, if present, takes priority over generic `MODEL_*` settings. Without either provider's key, the optional generic endpoint is selected through:
+The separate Groq/Qwen adapter remains available through `MODEL_PROVIDER=groq` and its own `GROQ_API_KEY`. The legacy OpenRouter adapter uses `MODEL_PROVIDER=openrouter` and `OPENROUTER_API_KEY`. Select another OpenAI-compatible chat endpoint explicitly with:
 
 ```text
+MODEL_PROVIDER=generic
 MODEL_BASE_URL=https://your-model-provider.example/v1
 MODEL_NAME=the-exact-model-id
 MODEL_API_KEY=your-provider-key-if-required

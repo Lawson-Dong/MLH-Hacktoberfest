@@ -1,4 +1,4 @@
-"""Evidence-derived proposals, with an optional open-weight model endpoint."""
+"""Evidence-derived proposals with explicit, isolated model providers."""
 from __future__ import annotations
 
 import json
@@ -18,19 +18,25 @@ except ImportError:
 
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 GROQ_MODEL = "qwen/qwen3.8-27b"
+XAI_BASE_URL = "https://api.x.ai/v1"
+XAI_MODEL = "grok-4.3"
 logger = logging.getLogger(__name__)
 
 
 def active_model() -> tuple[str, str, str]:
-    """Select Groq/Qwen explicitly without reusing another provider's credentials."""
-    # Compatibility with the Secret name already saved in the deployed project.
-    # Vercel cannot rename Sensitive variables without replacing their value.
-    groq_key = os.getenv("GROQ_API_KEY", "").strip() or os.getenv("Grok_API_Key", "").strip()
-    if os.getenv("MODEL_PROVIDER", "").strip().lower() == "groq" or groq_key:
+    """A Grok/xAI credential must never be sent to Groq or another provider."""
+    provider = os.getenv("MODEL_PROVIDER", "").strip().lower()
+    xai_key = next((os.getenv(name, "").strip() for name in ("XAI_API_KEY", "GROK_API_KEY", "Grok_API_Key") if os.getenv(name, "").strip()), "")
+    groq_key = os.getenv("GROQ_API_KEY", "").strip()
+    if provider in {"xai", "grok"} or (not provider and xai_key):
+        return XAI_BASE_URL, os.getenv("XAI_MODEL", "").strip() or XAI_MODEL, xai_key
+    if provider == "groq" or (not provider and groq_key):
         return GROQ_BASE_URL, GROQ_MODEL, groq_key
     openrouter_key = os.getenv("OPENROUTER_API_KEY", "").strip()
-    if openrouter_key:
+    if provider == "openrouter" or (not provider and openrouter_key):
         return "https://openrouter.ai/api/v1", "google/gemma-3-27b-it:free", openrouter_key
+    if provider not in {"", "generic"}:
+        return "", "", ""
     return (
         os.getenv("MODEL_BASE_URL", "").rstrip("/"),
         os.getenv("MODEL_NAME", ""),
@@ -80,7 +86,9 @@ async def propose(endpoint: Endpoint) -> tuple[Contract, list[str]]:
         response_schema=response_schema, response_example=example_for(response_schema), questions=questions[:8])
     base_url, model, api_key = active_model()
     warnings = []
-    if base_url == GROQ_BASE_URL and not api_key:
+    if base_url == XAI_BASE_URL and not api_key:
+        warnings.append("xAI/Grok is selected, but XAI_API_KEY (or the existing Grok_API_Key) is not set. Using schema inference.")
+    elif base_url == GROQ_BASE_URL and not api_key:
         warnings.append("Groq/Qwen is selected, but GROQ_API_KEY is not set. Using schema inference.")
     elif base_url and model:
         # The URL is operator-configured, never supplied by a repository or visitor.
@@ -93,7 +101,21 @@ async def propose(endpoint: Endpoint) -> tuple[Contract, list[str]]:
                     {"role": "user", "content": json.dumps({"proposal": draft.model_dump(), "evidence": [item.model_dump() for item in endpoint.callers[:2]]})},
                 ],
             }
-            if base_url == GROQ_BASE_URL:
+            messages_key, api_path = "messages", "chat/completions"
+            if base_url == XAI_BASE_URL:
+                # Official Responses API; Grok is a different service from Groq.
+                output_schema = Contract.model_json_schema()
+                for name in ("endpoint_id", "method", "path"):
+                    output_schema["properties"][name]["const"] = getattr(draft, name)
+                payload = {
+                    "model": model, "input": payload["messages"],
+                    "max_output_tokens": 2400, "temperature": 0.7, "top_p": 0.95,
+                    "reasoning": {"effort": "none" if model.startswith("grok-4.3") else "low"},
+                    "store": False,
+                    "text": {"format": {"type": "json_schema", "name": "api_contract", "schema": output_schema, "strict": True}},
+                }
+                messages_key, api_path = "input", "responses"
+            elif base_url == GROQ_BASE_URL:
                 # Qwen's non-thinking JSON mode avoids <think> output and improves contract parsing.
                 payload.pop("max_tokens")
                 payload.update({
@@ -104,15 +126,28 @@ async def propose(endpoint: Endpoint) -> tuple[Contract, list[str]]:
                 })
             async with httpx.AsyncClient(timeout=18, follow_redirects=False) as client:
                 for attempt in range(2):
-                    response = await client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
+                    response = await client.post(f"{base_url}/{api_path}", headers=headers, json=payload)
                     response.raise_for_status()
-                    choice = response.json()["choices"][0]
-                    content = choice["message"]["content"]
+                    result = response.json()
+                    if not isinstance(result, dict):
+                        raise ValueError("Model response was not an object")
+                    if base_url == XAI_BASE_URL:
+                        if result.get("status") not in {"completed", "incomplete"}:
+                            raise ValueError("xAI response did not complete")
+                        output = result["output"]
+                        if not isinstance(output, list) or any(not isinstance(item, dict) for item in output):
+                            raise ValueError("Malformed xAI output")
+                        content = "".join(part["text"] for item in output if item.get("type") == "message" and item.get("role") == "assistant" for part in item.get("content", []) if part.get("type") == "output_text")
+                        truncated = result["status"] == "incomplete"
+                    else:
+                        choice = result["choices"][0]
+                        content = choice["message"]["content"]
+                        truncated = choice.get("finish_reason") == "length"
                     if not isinstance(content, str):
                         raise ValueError("non-text response")
                     content = re.sub(r"^```(?:json)?\s*|\s*```$", "", content.strip())
                     try:
-                        if choice.get("finish_reason") == "length":
+                        if truncated:
                             raise ValueError("output token limit reached")
                         candidate = Contract.model_validate_json(content)
                         if (candidate.endpoint_id, candidate.method, candidate.path) != (draft.endpoint_id, draft.method, draft.path):
@@ -124,8 +159,8 @@ async def propose(endpoint: Endpoint) -> tuple[Contract, list[str]]:
                         logger.warning("Model contract validation failed (attempt %s): %s", attempt + 1, reason)
                         if attempt or len(content) > 24000:
                             raise ValueError("contract validation failed") from exc
-                        payload["messages"].extend([
-                            {"role": "assistant", "content": content},
+                        previous = output if base_url == XAI_BASE_URL else [{"role": "assistant", "content": content}]
+                        payload[messages_key].extend([*previous,
                             {"role": "user", "content": "Correct the JSON contract once. Validation failed at: " + reason + ". " + correction + ". Use only the allowed schema keys, at most 8 questions, and an example matching the schema. Preserve the original endpoint_id, method and path. Return the complete corrected JSON object only."},
                         ])
                         continue
