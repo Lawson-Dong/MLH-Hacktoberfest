@@ -20,6 +20,8 @@ GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 GROQ_MODEL = "qwen/qwen3.8-27b"
 XAI_BASE_URL = "https://api.x.ai/v1"
 XAI_MODEL = "grok-4.3"
+DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+DEEPSEEK_MODEL = "deepseek-flash"
 logger = logging.getLogger(__name__)
 
 
@@ -50,6 +52,9 @@ def active_model() -> tuple[str, str, str]:
         return XAI_BASE_URL, os.getenv("XAI_MODEL", "").strip() or XAI_MODEL, xai_key
     if provider == "groq" or (not provider and groq_key):
         return GROQ_BASE_URL, GROQ_MODEL, groq_key
+    deepseek_key = os.getenv("DEEPSEEK_API_KEY", "").strip()
+    if provider == "deepseek" or (not provider and deepseek_key):
+        return DEEPSEEK_BASE_URL, os.getenv("DEEPSEEK_MODEL", "").strip() or DEEPSEEK_MODEL, deepseek_key
     openrouter_key = os.getenv("OPENROUTER_API_KEY", "").strip()
     if provider == "openrouter" or (not provider and openrouter_key):
         return "https://openrouter.ai/api/v1", "google/gemma-3-27b-it:free", openrouter_key
@@ -108,6 +113,8 @@ async def propose(endpoint: Endpoint) -> tuple[Contract, list[str]]:
         warnings.append("xAI/Grok is selected, but XAI_API_KEY (or the existing Grok_API_Key) is not set. Using schema inference.")
     elif base_url == GROQ_BASE_URL and not api_key:
         warnings.append("Groq/Qwen is selected, but GROQ_API_KEY is not set. Using schema inference.")
+    elif base_url == DEEPSEEK_BASE_URL and not api_key:
+        warnings.append("DeepSeek is selected, but DEEPSEEK_API_KEY is not set. Using schema inference.")
     elif base_url and model:
         # The URL is operator-configured, never supplied by a repository or visitor.
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
@@ -140,6 +147,14 @@ async def propose(endpoint: Endpoint) -> tuple[Contract, list[str]]:
                     "max_completion_tokens": 2400,
                     "temperature": 0.4,
                     "reasoning_effort": "none",
+                    "response_format": {"type": "json_object"},
+                })
+            elif base_url == DEEPSEEK_BASE_URL:
+                # DeepSeek's OpenAI-compatible chat endpoint with JSON mode. The system
+                # prompt already contains "JSON", which DeepSeek requires for json_object.
+                payload.update({
+                    "max_tokens": 2400,
+                    "temperature": 0.3,
                     "response_format": {"type": "json_object"},
                 })
             async with httpx.AsyncClient(timeout=18, follow_redirects=False) as client:

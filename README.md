@@ -80,9 +80,24 @@ Verify the returned preview's `/api/health`, then run the demo flow above. Promo
 
 References: [Vercel Services](https://vercel.com/docs/services), [FastAPI on Vercel](https://vercel.com/docs/frameworks/backend/fastapi).
 
-## AI: xAI / Grok
+## AI: DeepSeek V4.1 (default)
 
 The scanner, review workflow, and runnable mocks work without any model credentials, using **Schema inference**. They must not be described as LLM-powered unless `/api/contract` actually returns a model-backed result.
+
+### DeepSeek setup for TritonTeam
+
+TritonTeam defaults to [DeepSeek-V4.1-Flash](https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash) (`deepseek-flash`) through the official OpenAI-compatible API at `https://api.deepseek.com`. The weights are MIT-licensed; the hosted API is pay-as-you-go with no standing free tier, but a hobby-scale workload typically costs around $1–2/month. Availability, account balance, permissions, and provider charges still apply.
+
+1. Create an API key at the [DeepSeek platform](https://platform.deepseek.com/).
+2. In **Vercel → tritonteam-hacktoberfest → Settings → Environment Variables**, add:
+   - `MODEL_PROVIDER=deepseek` as a **Config** variable for **Production**.
+   - `DEEPSEEK_API_KEY=<your DeepSeek key>` as a **Secret** variable for **Production**.
+   - Optionally, `DEEPSEEK_MODEL=deepseek-flash` as a **Config** variable.
+3. Save, then **redeploy Production** to load the new variables.
+
+These variables select `https://api.deepseek.com`. The backend requests `chat/completions` with `response_format: json_object`. DeepSeek requires the word "JSON" in the prompt; the contract system prompt already includes it. A missing key, HTTP failure, timeout, or invalid output returns an explicit `Schema inference` warning. Mock generation still requires developer review and acceptance.
+
+**Verify actual AI inference:** `GET /api/health` should report `model_configured: true` and `engine: "deepseek-flash"`; this verifies configuration only. Generate a proposal in the UI or use `POST /api/contract`, then check `contract.engine: "Model: deepseek-flash"` and `warnings: []`. A configured model returning 401, 403, 402, 429, or a timeout did **not** successfully generate the contract.
 
 ### Grok setup for TritonTeam
 
@@ -104,6 +119,8 @@ The backend requests structured JSON through `text.format` with the Contract JSO
 **Verify actual AI inference:** `GET /api/health` should report `model_configured: true` and `engine: "grok-4.3"`; this verifies configuration only. Generate a proposal in the UI or use `POST /api/contract`, then check `contract.engine: "Model: grok-4.3"` and `warnings: []`. A configured model returning 401, 403, 402, 429, or a timeout did **not** successfully generate the contract.
 
 ### Other providers
+
+DeepSeek, xAI/Grok, Groq, and OpenRouter are different services. A key for one provider is never sent to another, and explicit provider selection never falls through to another provider's credentials. Do not put keys in GitHub or client-side `VITE_*` variables.
 
 The separate Groq/Qwen adapter remains available through `MODEL_PROVIDER=groq` and its own `GROQ_API_KEY`. The legacy OpenRouter adapter uses `MODEL_PROVIDER=openrouter` and `OPENROUTER_API_KEY`. Select another OpenAI-compatible chat endpoint explicitly with:
 
