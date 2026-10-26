@@ -16,6 +16,12 @@ class DeepSeekTests(unittest.IsolatedAsyncioTestCase):
         with patch.dict(os.environ, {}, clear=True):
             self.template, _ = await propose(self.endpoint)
 
+    def wire_content(self):
+        value = self.template.model_dump()
+        for field in ("request_schema", "response_schema", "response_example"):
+            value[field] = json.dumps(value[field])
+        return json.dumps(value)
+
     async def invoke(self, handler):
         original = httpx.AsyncClient
         def factory(**kwargs):
@@ -44,9 +50,9 @@ class DeepSeekTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(payload["reasoning"], {"effort": "none"})
             self.assertEqual(payload["text"]["format"]["type"], "json_schema")
             self.assertTrue(payload["text"]["format"]["strict"])
-            self.assertEqual(payload["text"]["format"]["schema"]["properties"]["response_example"]["type"], "object")
+            self.assertEqual(payload["text"]["format"]["schema"]["properties"]["response_example"]["type"], "string")
             self.assertNotIn("reasoning_effort", payload)
-            return httpx.Response(200, json={"status": "completed", "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": json.dumps(self.template.model_dump())}]}]})
+            return httpx.Response(200, json={"status": "completed", "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": self.wire_content()}]}]})
         draft, warnings = await self.invoke(handler)
         self.assertEqual(draft.engine, "Model: " + DEEPSEEK_MODEL)
         self.assertEqual(warnings, [])
@@ -55,7 +61,7 @@ class DeepSeekTests(unittest.IsolatedAsyncioTestCase):
         requests = []
         def handler(request):
             requests.append(request)
-            return httpx.Response(200, json={"status": "incomplete", "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": json.dumps(self.template.model_dump())}]}]})
+            return httpx.Response(200, json={"status": "incomplete", "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": self.wire_content()}]}]})
         with self.assertLogs("backend.contract", level="WARNING"):
             draft, warnings = await self.invoke(handler)
         self.assertEqual(len(requests), 2)
