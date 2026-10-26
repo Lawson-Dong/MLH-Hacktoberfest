@@ -119,6 +119,15 @@ class XaiProviderTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(warnings)
             self.assertNotIn("xai-test-secret", " ".join(warnings))
 
+    async def test_parameter_error_detail_is_visible_and_key_is_redacted(self):
+        def handler(request):
+            return httpx.Response(400, json={"error": {"message": "Unsupported schema for xai-test-secret"}})
+        draft, warnings = await self.invoke(handler)
+        self.assertEqual(draft.engine, "Schema inference")
+        self.assertIn("Unsupported schema", warnings[0])
+        self.assertIn("[redacted]", warnings[0])
+        self.assertNotIn("xai-test-secret", warnings[0])
+
     def test_health_reports_grok_configuration(self):
         with patch.dict(os.environ, self.settings(), clear=True):
             health = TestClient(app).get("/api/health").json()

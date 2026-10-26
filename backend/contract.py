@@ -23,6 +23,24 @@ XAI_MODEL = "grok-4.3"
 logger = logging.getLogger(__name__)
 
 
+def provider_error_hint(response: httpx.Response, api_key: str) -> str:
+    """Keep actionable provider errors while removing credentials before display."""
+    try:
+        data = response.json()
+        error = data.get("error", data) if isinstance(data, dict) else None
+        message = error.get("message", "") if isinstance(error, dict) else error
+        if not message and isinstance(data, dict):
+            message = data.get("message", "")
+        if not isinstance(message, str):
+            return ""
+        if api_key:
+            message = message.replace(api_key, "[redacted]")
+        message = re.sub(r"\b(?:xai-|gsk_|sk-)[A-Za-z0-9_-]+", "[redacted]", message)
+        return " ".join(message.split())[:350]
+    except (ValueError, TypeError):
+        return ""
+
+
 def active_model() -> tuple[str, str, str]:
     """A Grok/xAI credential must never be sent to Groq or another provider."""
     provider = os.getenv("MODEL_PROVIDER", "").strip().lower()
@@ -169,14 +187,16 @@ async def propose(endpoint: Endpoint) -> tuple[Contract, list[str]]:
                     break
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code
+            hint = provider_error_hint(exc.response, api_key) if base_url == XAI_BASE_URL else ""
+            detail = f" Provider detail: {hint}" if hint else ""
             if status == 402:
-                warnings.append("Model provider returned HTTP 402 (payment or inference credits required). Using schema inference.")
+                warnings.append("Model provider returned HTTP 402 (payment or inference credits required). Using schema inference." + detail)
             elif status in (401, 403):
-                warnings.append(f"Model provider returned HTTP {status} (check API key and permissions). Using schema inference.")
+                warnings.append(f"Model provider returned HTTP {status} (check API key and permissions). Using schema inference." + detail)
             elif status == 429:
                 warnings.append("Model provider rate limit reached (HTTP 429). Using schema inference.")
             else:
-                warnings.append(f"Model provider returned HTTP {status}. Using schema inference.")
+                warnings.append(f"Model provider returned HTTP {status}. Using schema inference." + detail)
         except httpx.TimeoutException:
             warnings.append("Model request timed out. Showing the evidence-derived draft instead; this was not a successful AI generation.")
         except httpx.HTTPError:
