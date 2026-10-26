@@ -131,14 +131,14 @@ async def propose(endpoint: Endpoint) -> tuple[Contract, list[str]]:
                 # Official Responses API; Grok is a different service from Groq.
                 output_schema = Contract.model_json_schema()
                 if base_url == DEEPSEEK_BASE_URL:
-                    # DeepSeek rejects Pydantic Any without an explicit JSON type.
-                    # Keep the evidence-derived root kind; nested fields remain open.
-                    example_kind = "array" if endpoint.response_is_array else "object"
-                    output_schema["properties"]["response_example"] = {"type": example_kind}
-                    if example_kind == "array":
-                        output_schema["properties"]["response_example"]["items"] = {"type": "object", "additionalProperties": True}
-                    else:
-                        output_schema["properties"]["response_example"]["additionalProperties"] = True
+                    # Nested JSON Schema dictionaries are open-ended; DeepSeek's
+                    # structured-output subset forbids objects without properties.
+                    # Transport these three JSON values as strings, then validate
+                    # their decoded values using the unchanged Contract validator.
+                    for field in ("request_schema", "response_schema", "response_example"):
+                        output_schema["properties"][field] = {"type": "string", "description": "JSON-encoded value, including null as the string null"}
+                    payload["messages"][0]["content"] += " For transport only, encode request_schema, response_schema and response_example as JSON strings. For example request_schema must be the string null for GET; response_example can be the string {}. All other fields keep their original types."
+                    output_schema["required"] = list(output_schema["properties"])
                 for name in ("endpoint_id", "method", "path"):
                     output_schema["properties"][name]["const"] = getattr(draft, name)
                 payload = {
@@ -183,7 +183,13 @@ async def propose(endpoint: Endpoint) -> tuple[Contract, list[str]]:
                     try:
                         if truncated:
                             raise ValueError("output token limit reached")
-                        candidate = Contract.model_validate_json(content)
+                        if base_url == DEEPSEEK_BASE_URL:
+                            decoded = json.loads(content)
+                            for field in ("request_schema", "response_schema", "response_example"):
+                                decoded[field] = json.loads(decoded[field])
+                            candidate = Contract.model_validate(decoded)
+                        else:
+                            candidate = Contract.model_validate_json(content)
                         if (candidate.endpoint_id, candidate.method, candidate.path) != (draft.endpoint_id, draft.method, draft.path):
                             raise ValueError("endpoint identity changed")
                     except (ValidationError, ValueError) as exc:
