@@ -127,7 +127,7 @@ async def propose(endpoint: Endpoint) -> tuple[Contract, list[str]]:
                 ],
             }
             messages_key, api_path = "messages", "chat/completions"
-            if base_url == XAI_BASE_URL:
+            if base_url in {XAI_BASE_URL, DEEPSEEK_BASE_URL}:
                 # Official Responses API; Grok is a different service from Groq.
                 output_schema = Contract.model_json_schema()
                 for name in ("endpoint_id", "method", "path"):
@@ -135,14 +135,11 @@ async def propose(endpoint: Endpoint) -> tuple[Contract, list[str]]:
                 payload = {
                     "model": model, "input": payload["messages"],
                     "max_output_tokens": 2400, "temperature": 0.7, "top_p": 0.95,
-                    "reasoning": {"effort": "none" if model.startswith("grok-4.3") else "low"},
+                    "reasoning": {"effort": "none" if base_url == DEEPSEEK_BASE_URL or model.startswith("grok-4.3") else "low"},
                     "store": False,
                     "text": {"format": {"type": "json_schema", "name": "api_contract", "schema": output_schema, "strict": True}},
                 }
                 messages_key, api_path = "input", "responses"
-            elif base_url == DEEPSEEK_BASE_URL:
-                payload.update({"max_tokens": 2400, "thinking": {"type": "disabled"},
-                                "response_format": {"type": "json_object"}})
             elif base_url == GROQ_BASE_URL:
                 # Qwen's non-thinking JSON mode avoids <think> output and improves contract parsing.
                 payload.pop("max_tokens")
@@ -159,12 +156,12 @@ async def propose(endpoint: Endpoint) -> tuple[Contract, list[str]]:
                     result = response.json()
                     if not isinstance(result, dict):
                         raise ValueError("Model response was not an object")
-                    if base_url == XAI_BASE_URL:
+                    if base_url in {XAI_BASE_URL, DEEPSEEK_BASE_URL}:
                         if result.get("status") not in {"completed", "incomplete"}:
-                            raise ValueError("xAI response did not complete")
+                            raise ValueError("Model response did not complete")
                         output = result["output"]
                         if not isinstance(output, list) or any(not isinstance(item, dict) for item in output):
-                            raise ValueError("Malformed xAI output")
+                            raise ValueError("Malformed model output")
                         content = "".join(part["text"] for item in output if item.get("type") == "message" and item.get("role") == "assistant" for part in item.get("content", []) if part.get("type") == "output_text")
                         truncated = result["status"] == "incomplete"
                     else:
@@ -187,7 +184,7 @@ async def propose(endpoint: Endpoint) -> tuple[Contract, list[str]]:
                         logger.warning("Model contract validation failed (attempt %s): %s", attempt + 1, reason)
                         if attempt or len(content) > 24000:
                             raise ValueError("contract validation failed") from exc
-                        previous = output if base_url == XAI_BASE_URL else [{"role": "assistant", "content": content}]
+                        previous = output if base_url in {XAI_BASE_URL, DEEPSEEK_BASE_URL} else [{"role": "assistant", "content": content}]
                         payload[messages_key].extend([*previous,
                             {"role": "user", "content": "Correct the JSON contract once. Validation failed at: " + reason + ". " + correction + ". Use only the allowed schema keys, at most 8 questions, and an example matching the schema. Preserve the original endpoint_id, method and path. Return the complete corrected JSON object only."},
                         ])

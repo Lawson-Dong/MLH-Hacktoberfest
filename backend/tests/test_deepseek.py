@@ -37,14 +37,15 @@ class DeepSeekTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_json_payload_and_success(self):
         def handler(request):
-            self.assertEqual(str(request.url), DEEPSEEK_BASE_URL + "/chat/completions")
+            self.assertEqual(str(request.url), DEEPSEEK_BASE_URL + "/responses")
             self.assertEqual(request.headers["authorization"], "Bearer sk-test-secret")
             payload = json.loads(request.content)
             self.assertEqual(payload["model"], DEEPSEEK_MODEL)
-            self.assertEqual(payload["thinking"], {"type": "disabled"})
-            self.assertEqual(payload["response_format"], {"type": "json_object"})
+            self.assertEqual(payload["reasoning"], {"effort": "none"})
+            self.assertEqual(payload["text"]["format"]["type"], "json_schema")
+            self.assertTrue(payload["text"]["format"]["strict"])
             self.assertNotIn("reasoning_effort", payload)
-            return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(self.template.model_dump())}}]})
+            return httpx.Response(200, json={"status": "completed", "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": json.dumps(self.template.model_dump())}]}]})
         draft, warnings = await self.invoke(handler)
         self.assertEqual(draft.engine, "Model: " + DEEPSEEK_MODEL)
         self.assertEqual(warnings, [])
@@ -53,7 +54,7 @@ class DeepSeekTests(unittest.IsolatedAsyncioTestCase):
         requests = []
         def handler(request):
             requests.append(request)
-            return httpx.Response(200, json={"choices": [{"finish_reason": "length", "message": {"content": json.dumps(self.template.model_dump())}}]})
+            return httpx.Response(200, json={"status": "incomplete", "output": [{"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": json.dumps(self.template.model_dump())}]}]})
         with self.assertLogs("backend.contract", level="WARNING"):
             draft, warnings = await self.invoke(handler)
         self.assertEqual(len(requests), 2)
